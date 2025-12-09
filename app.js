@@ -6,14 +6,77 @@ const Icons = {
     Play: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
     Square: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>,
     Music: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
-    ZoomIn: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>,
-    Binary: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="14" y="14" width="4" height="6" rx="2"/><rect x="6" y="4" width="4" height="6" rx="2"/><path d="M6 20h4"/><path d="M14 10h4"/><path d="M6 14h2v6"/><path d="M14 4h2v6"/></svg>,
+    List: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+    Cursor: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
 };
 
 // --- Constants ---
 const MAX_RECORD_TIME_MS = 10000; // 10 seconds
 const BASE_SAMPLE_RATE = 44100;
-const ZOOM_WINDOW_MS = 20;
+const ZOOM_WINDOW_MS = 25; // 拡大表示する範囲 (ミリ秒)
+
+// --- Helper: Audio Generators ---
+const AudioGenerators = {
+    simple: (ctx) => {
+        const rate = ctx.sampleRate;
+        const duration = 2; 
+        const length = rate * duration;
+        const buffer = ctx.createBuffer(1, length, rate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) {
+            const t = i / rate;
+            data[i] = 0.6 * Math.sin(2 * Math.PI * 440 * t) + 0.3 * Math.sin(2 * Math.PI * 880 * t);
+            data[i] *= (1 - t/duration);
+        }
+        return buffer;
+    },
+    melody: (ctx) => {
+        const rate = ctx.sampleRate;
+        // C4, D4, E4, F4, G4, A4, B4, C5
+        const notes = [
+            { f: 261.63, d: 0.4 }, { f: 293.66, d: 0.4 }, { f: 329.63, d: 0.4 }, 
+            { f: 349.23, d: 0.4 }, { f: 392.00, d: 0.4 }, { f: 440.00, d: 0.4 }, 
+            { f: 493.88, d: 0.4 }, { f: 523.25, d: 0.8 }
+        ];
+        const totalDuration = notes.reduce((acc, n) => acc + n.d, 0);
+        const length = Math.ceil(rate * totalDuration);
+        const buffer = ctx.createBuffer(1, length, rate);
+        const data = buffer.getChannelData(0);
+        
+        let offset = 0;
+        notes.forEach(note => {
+            const noteLen = Math.ceil(note.d * rate);
+            for (let i = 0; i < noteLen; i++) {
+                const t = i / rate;
+                // Square-ish wave for retro feel
+                let val = 0.3 * Math.sin(2 * Math.PI * note.f * t) + 0.1 * Math.sin(2 * Math.PI * note.f * 3 * t);
+                // Envelope
+                if (i < 500) val *= (i / 500);
+                if (i > noteLen - 1000) val *= ((noteLen - i) / 1000);
+                
+                if (offset + i < length) data[offset + i] = val;
+            }
+            offset += noteLen;
+        });
+        return buffer;
+    },
+    chord: (ctx) => {
+        const rate = ctx.sampleRate;
+        const duration = 2.5;
+        const length = rate * duration;
+        const buffer = ctx.createBuffer(1, length, rate);
+        const data = buffer.getChannelData(0);
+        const freqs = [261.63, 329.63, 392.00, 523.25]; // C Major
+        for (let i = 0; i < length; i++) {
+            const t = i / rate;
+            let val = 0;
+            freqs.forEach(f => val += 0.2 * Math.sin(2 * Math.PI * f * t));
+            val *= (1 - t/duration);
+            data[i] = val;
+        }
+        return buffer;
+    }
+};
 
 // --- Helper: Audio Processing Logic ---
 const processAudioData = (rawBuffer, targetRate, bitDepth) => {
@@ -23,22 +86,26 @@ const processAudioData = (rawBuffer, targetRate, bitDepth) => {
     const length = rawData.length;
     const processedData = new Float32Array(length);
     
+    // Sampling step size
     const step = Math.max(1, BASE_SAMPLE_RATE / targetRate);
+    
+    // Quantization levels
     const levels = Math.pow(2, bitDepth);
     const maxLevel = levels - 1;
     
     let currentVal = 0;
 
     for (let i = 0; i < length; i++) {
+        // Sampling (Sample & Hold)
         if (i % Math.floor(step) === 0) {
             currentVal = rawData[i];
         }
 
-        // Normalize, Quantize, Denormalize
-        let normalized = (currentVal + 1) / 2;
-        normalized = Math.max(0, Math.min(1, normalized));
-        const quantizedInt = Math.round(normalized * maxLevel);
-        const quantizedFloat = (quantizedInt / maxLevel) * 2 - 1;
+        // Quantization
+        let normalized = (currentVal + 1) / 2; // -1..1 -> 0..1
+        normalized = Math.max(0, Math.min(1, normalized)); // clamp
+        const quantizedInt = Math.round(normalized * maxLevel); // 0..maxLevel
+        const quantizedFloat = (quantizedInt / maxLevel) * 2 - 1; // back to -1..1
 
         processedData[i] = quantizedFloat;
     }
@@ -47,9 +114,49 @@ const processAudioData = (rawBuffer, targetRate, bitDepth) => {
 };
 
 // --- Component: Waveform Canvas ---
-const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth }) => {
+const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth, cursorIndex, onSetCursor }) => {
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Calculate window range
+    const samplesPerMs = BASE_SAMPLE_RATE / 1000;
+    const windowSizeSamples = Math.floor(ZOOM_WINDOW_MS * samplesPerMs); 
+    // Center the view around the cursor, but keep within bounds
+    let startSample = cursorIndex - Math.floor(windowSizeSamples / 2);
+    if (startSample < 0) startSample = 0;
+    if (originalData && startSample > originalData.length - windowSizeSamples) startSample = originalData.length - windowSizeSamples;
+    const endSample = startSample + windowSizeSamples;
+
+    // Helper to map coordinates
+    const getX = (index, width) => ((index - startSample) / windowSizeSamples) * width;
+    const getY = (val, height) => (1 - (val + 1) / 2) * height;
+    const getIndexFromX = (x, width) => {
+        const ratio = x / width;
+        return Math.floor(ratio * windowSizeSamples) + startSample;
+    };
+
+    // Event Handlers for Cursor Interaction
+    const handleMouseDown = (e) => {
+        setIsDragging(true);
+        updateCursor(e);
+    };
+    const handleMouseMove = (e) => {
+        if (isDragging) updateCursor(e);
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    const handleMouseLeave = () => setIsDragging(false);
+
+    const updateCursor = (e) => {
+        if (!originalData || !containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const newIndex = getIndexFromX(x, rect.width);
+        
+        if (newIndex >= 0 && newIndex < originalData.length) {
+            onSetCursor(newIndex);
+        }
+    };
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -59,152 +166,214 @@ const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth 
         const ctx = canvas.getContext('2d');
         const width = container.clientWidth;
         const height = container.clientHeight;
-        
-        // Handle HiDPI
         const dpr = window.devicePixelRatio || 1;
         canvas.width = width * dpr;
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
 
-        // Background (Light Theme: White)
+        // Clear & Background
         ctx.fillStyle = '#ffffff'; 
         ctx.fillRect(0, 0, width, height);
 
-        // Grid lines (Light Theme: Light Grey)
-        ctx.strokeStyle = '#e2e8f0'; // slate-200
+        // Center Line (0V)
+        ctx.strokeStyle = '#e2e8f0'; 
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, height / 2);
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        const samplesPerMs = BASE_SAMPLE_RATE / 1000;
-        const windowSizeSamples = Math.floor(ZOOM_WINDOW_MS * samplesPerMs); 
-        const startSample = Math.floor(originalData.length / 2) - Math.floor(windowSizeSamples / 2);
-        const endSample = startSample + windowSizeSamples;
-
-        const getX = (index) => ((index - startSample) / windowSizeSamples) * width;
-        const getY = (val) => (1 - (val + 1) / 2) * height;
-
-        // 1. Draw Original (Ghost - Light Theme: Grey)
+        // 1. Original Waveform (Ghost)
         ctx.beginPath();
-        ctx.strokeStyle = '#cbd5e1'; // slate-300
+        ctx.strokeStyle = '#cbd5e1'; 
         ctx.lineWidth = 2;
         for (let i = startSample; i < endSample; i++) {
-            const x = getX(i);
-            const y = getY(originalData[i]);
+            const x = getX(i, width);
+            const y = getY(originalData[i], height);
             if (i === startSample) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // 2. Draw Processed (Active - Light Theme: Cyan)
+        // 2. Processed Waveform
         if (processedData) {
             ctx.beginPath();
-            ctx.strokeStyle = '#0891b2'; // cyan-600 (darker for white bg)
+            ctx.strokeStyle = '#0891b2'; 
             ctx.lineWidth = 3;
-            
             for (let i = startSample; i < endSample; i++) {
-                const x = getX(i);
-                const val = processedData[i];
-                const y = getY(val);
-                
+                const x = getX(i, width);
+                const y = getY(processedData[i], height);
                 if (i === startSample) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             }
             ctx.stroke();
-        }
 
-        // 3. Draw Sampling Points
-        if (targetRate < 12000) {
-            const step = BASE_SAMPLE_RATE / targetRate;
-            ctx.fillStyle = '#f59e0b'; // amber-500
-            for (let i = startSample; i < endSample; i++) {
-                if (Math.floor(i % step) === 0) {
-                   const x = getX(i);
-                   const y = getY(processedData[i]);
-                   ctx.beginPath();
-                   ctx.arc(x, y, 3, 0, Math.PI * 2);
-                   ctx.fill();
+            // Sampling Points
+            if (targetRate < 12000) {
+                const step = BASE_SAMPLE_RATE / targetRate;
+                ctx.fillStyle = '#f59e0b'; 
+                for (let i = startSample; i < endSample; i++) {
+                    // Just an approximation for visualization
+                    if (Math.floor(i % step) === 0) {
+                       const x = getX(i, width);
+                       const y = getY(processedData[i], height);
+                       ctx.beginPath();
+                       ctx.arc(x, y, 3, 0, Math.PI * 2);
+                       ctx.fill();
+                    }
                 }
             }
         }
 
-    }, [originalData, processedData, targetRate, bitDepth]);
+        // 3. Cursor Line
+        const cursorX = getX(cursorIndex, width);
+        if (cursorX >= 0 && cursorX <= width) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#ef4444'; // Red
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.moveTo(cursorX, 0);
+            ctx.lineTo(cursorX, height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Cursor Knob
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.arc(cursorX, height - 6, 4, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+    }, [originalData, processedData, targetRate, bitDepth, cursorIndex]);
 
     return (
-        <div ref={containerRef} className="w-full h-64 bg-white rounded-lg border border-slate-200 relative overflow-hidden shadow-sm">
+        <div 
+            ref={containerRef} 
+            className="w-full h-64 bg-white rounded-lg border border-slate-200 relative overflow-hidden shadow-sm cursor-crosshair select-none touch-none"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onTouchStart={(e) => { setIsDragging(true); updateCursor(e.touches[0]); }}
+            onTouchMove={(e) => { if(isDragging) updateCursor(e.touches[0]); }}
+            onTouchEnd={handleMouseUp}
+        >
             <canvas ref={canvasRef} className="w-full h-full block" />
             <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded text-xs text-slate-500 border border-slate-200 pointer-events-none shadow-sm font-mono">
-                表示範囲: {ZOOM_WINDOW_MS}ms
+                表示範囲: {ZOOM_WINDOW_MS}ms / カーソル位置: {cursorIndex}
             </div>
-            {originalData && !processedData && (
-                <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-                    Loading...
+            {originalData && (
+                <div className="absolute bottom-2 left-2 text-rose-500 text-xs font-bold pointer-events-none bg-white/80 px-2 py-1 rounded">
+                    ← グラフをクリック/ドラッグして検査位置を変更 →
                 </div>
             )}
             {!originalData && (
                 <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-                    No Audio Data
+                    録音またはサンプルを選択してください
                 </div>
             )}
         </div>
     );
 };
 
-// --- Component: Binary View ---
-const BinaryView = ({ processedData, bitDepth }) => {
-    const sampleIndex = processedData ? Math.floor(processedData.length / 2) : 0;
-    const sampleValue = processedData ? processedData[sampleIndex] : 0;
+// --- Component: Coding Data Inspector ---
+const DataInspector = ({ processedData, bitDepth, cursorIndex, targetRate }) => {
+    // Show 5 samples starting from cursor
+    const count = 5;
+    const samples = [];
     
-    const levels = Math.pow(2, bitDepth);
-    const maxLevel = levels - 1;
-    let normalized = (sampleValue + 1) / 2;
-    normalized = Math.max(0, Math.min(1, normalized));
-    const intValue = Math.round(normalized * maxLevel);
+    // Sampling step calculation to detect actual sampled points
+    const step = Math.max(1, BASE_SAMPLE_RATE / targetRate);
     
-    const binaryString = intValue.toString(2).padStart(bitDepth, '0');
-    const bits = binaryString.split('');
+    if (processedData) {
+        for (let i = 0; i < count; i++) {
+            const idx = cursorIndex + i;
+            if (idx >= processedData.length) break;
+            
+            const val = processedData[idx];
+            
+            // Re-calculate quantization for display
+            const levels = Math.pow(2, bitDepth);
+            const maxLevel = levels - 1;
+            let normalized = (val + 1) / 2;
+            normalized = Math.max(0, Math.min(1, normalized));
+            const intValue = Math.round(normalized * maxLevel);
+            const binaryString = intValue.toString(2).padStart(bitDepth, '0');
+            
+            // Check if this point is a "Sampling Point" (update point)
+            const isSamplePoint = Math.floor(idx % step) === 0;
+
+            samples.push({
+                index: idx,
+                val: val,
+                intValue: intValue,
+                maxLevel: maxLevel,
+                binary: binaryString,
+                isSamplePoint: isSamplePoint
+            });
+        }
+    }
 
     return (
-        <div className="mt-4 p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-4 text-slate-600 text-sm uppercase tracking-wider font-bold">
-                <Icons.Binary />
-                <span>符号化モニター (Coding)</span>
-            </div>
-            <div className="flex flex-col lg:flex-row gap-8 items-center justify-center py-4">
-                <div className="text-center min-w-[120px]">
-                    <div className="text-xs text-slate-500 mb-1">アナログ電圧</div>
-                    <div className="text-2xl font-mono text-cyan-600 font-bold">{sampleValue.toFixed(4)}</div>
+        <div className="mt-4 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
+                    <Icons.List />
+                    <span>符号化データインスペクター</span>
                 </div>
-                
-                <div className="hidden lg:block text-slate-300">→</div>
-                
-                <div className="text-center min-w-[120px]">
-                    <div className="text-xs text-slate-500 mb-1">量子化レベル</div>
-                    <div className="text-2xl font-mono text-amber-500 font-bold">{intValue} <span className="text-sm text-slate-400 font-normal">/ {maxLevel}</span></div>
-                </div>
-
-                <div className="hidden lg:block text-slate-300">→</div>
-
-                <div className="text-center w-full lg:w-auto overflow-x-auto">
-                    <div className="text-xs text-slate-500 mb-1">デジタルデータ (2進数)</div>
-                    <div className="flex gap-1 justify-center min-w-max px-2">
-                        {bits.map((b, i) => (
-                            <span key={i} className={`
-                                inline-block w-6 h-8 leading-8 text-center rounded font-mono font-bold text-sm
-                                ${b === '1' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-slate-100 text-slate-400 border border-slate-200'}
-                            `}>
-                                {b}
-                            </span>
-                        ))}
-                    </div>
-                    <div className="text-xs text-right mt-1 text-slate-400 font-mono">{bitDepth} bit</div>
+                <div className="text-xs text-rose-500 font-medium">
+                    カーソル位置から {count} サンプル分を表示
                 </div>
             </div>
-            <p className="text-xs text-center text-slate-400 mt-2 bg-slate-50 py-1 rounded">
-                波形中央の1点のサンプリング値をリアルタイム変換中
-            </p>
+            
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                        <tr>
+                            <th className="px-4 py-2 w-16 text-center">No.</th>
+                            <th className="px-4 py-2">状態</th>
+                            <th className="px-4 py-2 text-right">アナログ値 (-1~1)</th>
+                            <th className="px-4 py-2 text-center">量子化レベル (10進)</th>
+                            <th className="px-4 py-2">符号 (2進数)</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {samples.length > 0 ? samples.map((s) => (
+                            <tr key={s.index} className={s.index === cursorIndex ? "bg-rose-50" : "hover:bg-slate-50"}>
+                                <td className="px-4 py-3 text-center font-mono text-slate-400">{s.index}</td>
+                                <td className="px-4 py-3">
+                                    {s.index === cursorIndex && <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-600 border border-rose-200">Cursor</span>}
+                                    {/* Show update marker if sample rate is low */}
+                                    {step > 1.5 && s.isSamplePoint && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-amber-400" title="Sampling Point"></span>}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-cyan-700 font-bold">
+                                    {s.val.toFixed(4)}
+                                </td>
+                                <td className="px-4 py-3 text-center font-mono">
+                                    <span className="text-amber-600 font-bold text-lg">{s.intValue}</span>
+                                    <span className="text-slate-400 text-xs ml-1">/ {s.maxLevel}</span>
+                                </td>
+                                <td className="px-4 py-3 font-mono">
+                                    <div className="flex gap-0.5">
+                                        {s.binary.split('').map((b, i) => (
+                                            <span key={i} className={`
+                                                w-5 h-6 flex items-center justify-center rounded text-xs
+                                                ${b === '1' ? 'bg-cyan-600 text-white' : 'bg-slate-200 text-slate-400'}
+                                            `}>
+                                                {b}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </td>
+                            </tr>
+                        )) : (
+                            <tr>
+                                <td colSpan="5" className="px-4 py-8 text-center text-slate-400">データがありません</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
@@ -215,11 +384,12 @@ const App = () => {
     const [originalBuffer, setOriginalBuffer] = useState(null);
     const [originalData, setOriginalData] = useState(null);
     
+    // Params
     const [sampleRate, setSampleRate] = useState(44100);
     const [bitDepth, setBitDepth] = useState(16);
+    const [cursorIndex, setCursorIndex] = useState(0); // Cursor position for inspection
     
     const [processedData, setProcessedData] = useState(null);
-    
     const [isRecording, setIsRecording] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     
@@ -227,6 +397,7 @@ const App = () => {
     const chunksRef = useRef([]);
     const sourceNodeRef = useRef(null);
 
+    // Initializer
     const initAudio = () => {
         if (!audioContext) {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -236,6 +407,7 @@ const App = () => {
         return audioContext;
     };
 
+    // Actions
     const startRecording = async () => {
         const ctx = initAudio();
         if (ctx.state === 'suspended') await ctx.resume();
@@ -244,33 +416,23 @@ const App = () => {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorderRef.current = new MediaRecorder(stream);
             chunksRef.current = [];
-
-            mediaRecorderRef.current.ondataavailable = (e) => {
-                chunksRef.current.push(e.data);
-            };
-
+            mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
             mediaRecorderRef.current.onstop = async () => {
                 const blob = new Blob(chunksRef.current, { type: 'audio/ogg; codecs=opus' });
                 const arrayBuffer = await blob.arrayBuffer();
                 const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-                
-                setOriginalBuffer(audioBuffer);
-                setOriginalData(audioBuffer.getChannelData(0));
-                
+                loadBuffer(audioBuffer);
                 stream.getTracks().forEach(track => track.stop());
             };
-
             mediaRecorderRef.current.start();
             setIsRecording(true);
-
             setTimeout(() => {
                 if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
                     stopRecording();
                 }
             }, MAX_RECORD_TIME_MS);
-
         } catch (err) {
-            console.error("Mic Error:", err);
+            console.error(err);
             alert("マイクの使用が許可されていません。");
         }
     };
@@ -282,32 +444,24 @@ const App = () => {
         }
     };
 
-    const generateSampleTone = () => {
+    const generateTone = (type) => {
         const ctx = initAudio();
         if (ctx.state === 'suspended') ctx.resume();
-        
-        const rate = ctx.sampleRate;
-        const duration = 2; 
-        const length = rate * duration;
-        const buffer = ctx.createBuffer(1, length, rate);
-        const data = buffer.getChannelData(0);
-        
-        for (let i = 0; i < length; i++) {
-            const t = i / rate;
-            data[i] = 0.6 * Math.sin(2 * Math.PI * 440 * t) + 0.3 * Math.sin(2 * Math.PI * 880 * t);
-            data[i] *= (1 - t/duration);
-        }
-        
+        const buffer = AudioGenerators[type](ctx);
+        loadBuffer(buffer);
+    };
+
+    const loadBuffer = (buffer) => {
         setOriginalBuffer(buffer);
+        const data = buffer.getChannelData(0);
         setOriginalData(data);
+        // Reset cursor to middle
+        setCursorIndex(Math.floor(data.length / 2));
     };
 
     const playProcessedAudio = async () => {
         if (!processedData || !audioContext) return;
-        
-        if (sourceNodeRef.current) {
-            sourceNodeRef.current.stop();
-        }
+        if (sourceNodeRef.current) sourceNodeRef.current.stop();
 
         const buffer = audioContext.createBuffer(1, processedData.length, BASE_SAMPLE_RATE);
         buffer.copyToChannel(processedData, 0);
@@ -328,6 +482,7 @@ const App = () => {
         }
     };
 
+    // Processing Effect
     useEffect(() => {
         if (originalBuffer) {
             const processed = processAudioData(originalBuffer, sampleRate, bitDepth);
@@ -337,161 +492,125 @@ const App = () => {
 
     return (
         <div className="max-w-4xl mx-auto p-4 md:p-8">
-            
             <header className="mb-8 text-center">
                 <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-2">
                     音のデジタル化実験室 <span className="text-cyan-600 text-base align-middle ml-2 border border-cyan-200 bg-cyan-50 px-2 py-1 rounded-full">SoundBit</span>
                 </h1>
-                <p className="text-slate-500">
-                    AD変換（標本化・量子化・符号化）の仕組みを体験しよう
-                </p>
+                <p className="text-slate-500">AD変換（標本化・量子化・符号化）の仕組みを体験しよう</p>
             </header>
 
-            {/* Source Selection */}
+            {/* 1. SOURCE */}
             <section className="bg-white rounded-xl p-6 mb-6 shadow-sm border border-slate-200">
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-4">
                     <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
                         <span className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
                         音声入力
                     </h2>
-                    <div className="flex gap-3">
+                    
+                    <div className="flex flex-wrap gap-2 justify-center">
+                        {/* Recording */}
                         {!isRecording ? (
-                            <button 
-                                onClick={startRecording}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg transition-colors font-bold shadow-sm shadow-rose-200"
-                            >
-                                <Icons.Mic /> 録音 (10秒)
+                            <button onClick={startRecording} className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-bold shadow-sm transition-transform active:scale-95">
+                                <Icons.Mic /> 録音
                             </button>
                         ) : (
-                            <button 
-                                onClick={stopRecording}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-slate-100 text-rose-500 border border-rose-200 rounded-lg recording-active font-bold"
-                            >
+                            <button onClick={stopRecording} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-rose-500 border border-rose-200 rounded-lg font-bold animate-pulse">
                                 <Icons.Square /> 停止
                             </button>
                         )}
-                        <button 
-                            onClick={generateSampleTone}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-white hover:bg-slate-50 text-cyan-600 border border-cyan-200 rounded-lg transition-colors font-bold"
-                        >
-                            <Icons.Music /> サンプル音
+
+                        <div className="h-8 w-px bg-slate-200 mx-2 hidden md:block"></div>
+
+                        {/* Presets */}
+                        <button onClick={() => generateTone('simple')} className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg text-sm font-medium transition-colors">
+                            シンプル (正弦波)
+                        </button>
+                        <button onClick={() => generateTone('melody')} className="px-4 py-2 bg-white hover:bg-slate-50 text-cyan-600 border border-cyan-200 rounded-lg text-sm font-bold transition-colors flex items-center gap-1">
+                            <Icons.Music /> メロディ
+                        </button>
+                        <button onClick={() => generateTone('chord')} className="px-4 py-2 bg-white hover:bg-slate-50 text-indigo-600 border border-indigo-200 rounded-lg text-sm font-bold transition-colors">
+                            和音 (コード)
                         </button>
                     </div>
                 </div>
-                {isRecording && <div className="text-center text-rose-500 animate-pulse text-sm font-bold">録音中... マイクに向かって話してください</div>}
+                {isRecording && <div className="text-center text-rose-500 text-sm font-bold mt-2">録音中...</div>}
             </section>
 
-            {/* Main Content Area */}
+            {/* 2. VISUALIZATION & CONTROLS */}
             <div className={`transition-all duration-500 ${originalData ? 'opacity-100' : 'opacity-40 grayscale pointer-events-none'}`}>
                 
-                {/* Visualization */}
                 <section className="mb-6">
                     <div className="flex justify-between items-end mb-2">
                         <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
                              <span className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span>
-                             波形確認
+                             波形確認・符号化
                         </h2>
                         <div className="flex gap-4 text-xs font-medium">
                             <div className="flex items-center gap-2 bg-white px-2 py-1 rounded border border-slate-200">
-                                <span className="w-3 h-3 rounded-full bg-slate-300"></span>
-                                <span className="text-slate-500">元のアナログ波形</span>
+                                <span className="w-3 h-3 rounded-full bg-slate-300"></span><span className="text-slate-500">アナログ</span>
                             </div>
                             <div className="flex items-center gap-2 bg-white px-2 py-1 rounded border border-slate-200">
-                                <span className="w-3 h-3 rounded-full bg-cyan-600"></span>
-                                <span className="text-cyan-700">デジタル化波形</span>
+                                <span className="w-3 h-3 rounded-full bg-cyan-600"></span><span className="text-cyan-700">デジタル</span>
                             </div>
                         </div>
                     </div>
+                    
+                    {/* Waveform Canvas */}
                     <WaveformVisualizer 
                         originalData={originalData} 
                         processedData={processedData}
                         targetRate={sampleRate}
                         bitDepth={bitDepth}
+                        cursorIndex={cursorIndex}
+                        onSetCursor={setCursorIndex}
                     />
+
+                    {/* Controls Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        {/* Sampling */}
+                        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-sm font-bold text-amber-600">標本化周波数 (Sampling Rate)</label>
+                                <span className="font-mono font-bold text-slate-700">{sampleRate} Hz</span>
+                            </div>
+                            <input type="range" min="1000" max="44100" step="100" value={sampleRate} onChange={(e) => setSampleRate(Number(e.target.value))} className="w-full accent-amber-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
+                        </div>
+                        {/* Quantization */}
+                        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-sm font-bold text-emerald-600">量子化ビット数 (Bit Depth)</label>
+                                <span className="font-mono font-bold text-slate-700">{bitDepth} bit</span>
+                            </div>
+                            <input type="range" min="2" max="16" step="1" value={bitDepth} onChange={(e) => setBitDepth(Number(e.target.value))} className="w-full accent-emerald-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
+                        </div>
+                    </div>
                 </section>
 
-                {/* Controls */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    
-                    {/* Sampling Rate */}
-                    <section className="bg-white rounded-xl p-6 border-t-4 border-amber-400 shadow-sm border-x border-b border-slate-200">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-amber-600">標本化 (Sampling)</h3>
-                            <span className="text-2xl font-mono text-slate-800 font-bold">{sampleRate} <span className="text-sm text-slate-400 font-normal">Hz</span></span>
-                        </div>
-                        <input 
-                            type="range" 
-                            min="1000" 
-                            max="44100" 
-                            step="100" 
-                            value={sampleRate}
-                            onChange={(e) => setSampleRate(Number(e.target.value))}
-                            className="w-full mb-2 accent-amber-500"
-                        />
-                        <div className="flex justify-between text-xs text-slate-400 font-mono">
-                            <span>1kHz (粗い)</span>
-                            <span>44.1kHz (CD)</span>
-                        </div>
-                        <p className="mt-4 text-sm text-slate-500 leading-relaxed bg-amber-50 p-3 rounded text-amber-900 border border-amber-100">
-                            <strong>時間の分割:</strong> 数値が低いと、波形がカクカクになり、高い音が消えてこもった音になります。
-                        </p>
-                    </section>
-
-                    {/* Bit Depth */}
-                    <section className="bg-white rounded-xl p-6 border-t-4 border-emerald-500 shadow-sm border-x border-b border-slate-200">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-emerald-600">量子化 (Quantization)</h3>
-                            <span className="text-2xl font-mono text-slate-800 font-bold">{bitDepth} <span className="text-sm text-slate-400 font-normal">bit</span></span>
-                        </div>
-                        <input 
-                            type="range" 
-                            min="2" 
-                            max="16" 
-                            step="1" 
-                            value={bitDepth}
-                            onChange={(e) => setBitDepth(Number(e.target.value))}
-                            className="w-full mb-2 accent-emerald-500"
-                        />
-                        <div className="flex justify-between text-xs text-slate-400 font-mono">
-                            <span>2bit (粗い)</span>
-                            <span>16bit (細かい)</span>
-                        </div>
-                        <p className="mt-4 text-sm text-slate-500 leading-relaxed bg-emerald-50 p-3 rounded text-emerald-900 border border-emerald-100">
-                            <strong>振幅の段階:</strong> 数値が低いと、波形の形が崩れ、「サー」というノイズが混じります。
-                        </p>
-                    </section>
-                </div>
+                {/* Data Inspector Table */}
+                <DataInspector 
+                    processedData={processedData} 
+                    bitDepth={bitDepth} 
+                    cursorIndex={cursorIndex}
+                    targetRate={sampleRate}
+                />
 
                 {/* Playback */}
-                <section className="flex flex-col items-center justify-center py-6 mb-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                <section className="flex flex-col items-center justify-center py-8 mt-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
                     {!isPlaying ? (
-                        <button 
-                            onClick={playProcessedAudio}
-                            className="group relative inline-flex items-center gap-3 px-8 py-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xl font-bold rounded-full shadow-lg shadow-cyan-200 transition-all hover:scale-105 active:scale-95"
-                        >
-                            <Icons.Play />
-                            変換後の音を再生
+                        <button onClick={playProcessedAudio} className="group relative inline-flex items-center gap-3 px-8 py-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xl font-bold rounded-full shadow-lg shadow-cyan-200 transition-all hover:scale-105 active:scale-95">
+                            <Icons.Play /> 変換後の音を再生
                         </button>
                     ) : (
-                        <button 
-                            onClick={stopAudio}
-                            className="inline-flex items-center gap-3 px-8 py-4 bg-slate-200 text-slate-700 text-xl font-bold rounded-full hover:bg-slate-300 transition-all"
-                        >
-                            <Icons.Square />
-                            停止
+                        <button onClick={stopAudio} className="inline-flex items-center gap-3 px-8 py-4 bg-slate-200 text-slate-700 text-xl font-bold rounded-full hover:bg-slate-300 transition-all">
+                            <Icons.Square /> 停止
                         </button>
                     )}
-                    <p className="mt-3 text-slate-500 text-sm font-medium">
-                        設定を変更したら再生して、音質の劣化を確認しよう！
-                    </p>
+                    <p className="mt-3 text-slate-500 text-sm">現在の設定 ({sampleRate}Hz / {bitDepth}bit) で再生します</p>
                 </section>
-
-                <BinaryView processedData={processedData} bitDepth={bitDepth} />
-                
             </div>
-
-            <footer className="mt-12 text-center text-slate-400 text-xs">
-                <p>High School Information I Study App</p>
+            
+            <footer className="mt-12 text-center text-slate-400 text-xs pb-8">
+                <p>Information I Study App</p>
             </footer>
         </div>
     );
