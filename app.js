@@ -7,7 +7,9 @@ const Icons = {
     Square: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>,
     Music: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
     List: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-    Cursor: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+    Cursor: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>,
+    ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>,
+    ChevronUp: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
 };
 
 // --- Constants ---
@@ -114,7 +116,7 @@ const processAudioData = (rawBuffer, targetRate, bitDepth) => {
 };
 
 // --- Component: Waveform Canvas ---
-const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth, cursorIndex, onSetCursor }) => {
+const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth, cursorIndex, onSetCursor, isInspectorOpen }) => {
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -138,11 +140,12 @@ const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth,
 
     // Event Handlers for Cursor Interaction
     const handleMouseDown = (e) => {
+        if (!isInspectorOpen) return;
         setIsDragging(true);
         updateCursor(e);
     };
     const handleMouseMove = (e) => {
-        if (isDragging) updateCursor(e);
+        if (isDragging && isInspectorOpen) updateCursor(e);
     };
     const handleMouseUp = () => setIsDragging(false);
     const handleMouseLeave = () => setIsDragging(false);
@@ -225,31 +228,33 @@ const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth,
             }
         }
 
-        // 3. Cursor Line
-        const cursorX = getX(cursorIndex, width);
-        if (cursorX >= 0 && cursorX <= width) {
-            ctx.beginPath();
-            ctx.strokeStyle = '#ef4444'; // Red
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 3]);
-            ctx.moveTo(cursorX, 0);
-            ctx.lineTo(cursorX, height);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            
-            // Cursor Knob
-            ctx.fillStyle = '#ef4444';
-            ctx.beginPath();
-            ctx.arc(cursorX, height - 6, 4, 0, Math.PI*2);
-            ctx.fill();
+        // 3. Cursor Line (Only when inspector is open)
+        if (isInspectorOpen) {
+            const cursorX = getX(cursorIndex, width);
+            if (cursorX >= 0 && cursorX <= width) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#ef4444'; // Red
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 3]);
+                ctx.moveTo(cursorX, 0);
+                ctx.lineTo(cursorX, height);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Cursor Knob
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(cursorX, height - 6, 4, 0, Math.PI*2);
+                ctx.fill();
+            }
         }
 
-    }, [originalData, processedData, targetRate, bitDepth, cursorIndex]);
+    }, [originalData, processedData, targetRate, bitDepth, cursorIndex, isInspectorOpen]);
 
     return (
         <div 
             ref={containerRef} 
-            className="w-full h-64 bg-white rounded-lg border border-slate-200 relative overflow-hidden shadow-sm cursor-crosshair select-none touch-none"
+            className={`w-full h-64 bg-white rounded-lg border border-slate-200 relative overflow-hidden shadow-sm select-none touch-none ${isInspectorOpen ? 'cursor-crosshair' : 'cursor-default'}`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -260,9 +265,9 @@ const WaveformVisualizer = ({ originalData, processedData, targetRate, bitDepth,
         >
             <canvas ref={canvasRef} className="w-full h-full block" />
             <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded text-xs text-slate-500 border border-slate-200 pointer-events-none shadow-sm font-mono">
-                表示範囲: {ZOOM_WINDOW_MS}ms / カーソル位置: {cursorIndex}
+                表示範囲: {ZOOM_WINDOW_MS}ms {isInspectorOpen && `/ カーソル位置: ${cursorIndex}`}
             </div>
-            {originalData && (
+            {originalData && isInspectorOpen && (
                 <div className="absolute bottom-2 left-2 text-rose-500 text-xs font-bold pointer-events-none bg-white/80 px-2 py-1 rounded">
                     ← グラフをクリック/ドラッグして検査位置を変更 →
                 </div>
@@ -315,17 +320,7 @@ const DataInspector = ({ processedData, bitDepth, cursorIndex, targetRate }) => 
     }
 
     return (
-        <div className="mt-4 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-                <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
-                    <Icons.List />
-                    <span>符号化データインスペクター</span>
-                </div>
-                <div className="text-xs text-rose-500 font-medium">
-                    カーソル位置から {count} サンプル分を表示
-                </div>
-            </div>
-            
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mt-4">
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
@@ -392,6 +387,9 @@ const App = () => {
     const [processedData, setProcessedData] = useState(null);
     const [isRecording, setIsRecording] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
+    
+    // UI State
+    const [showInspector, setShowInspector] = useState(false);
     
     const mediaRecorderRef = useRef(null);
     const chunksRef = useRef([]);
@@ -491,7 +489,7 @@ const App = () => {
     }, [originalBuffer, sampleRate, bitDepth]);
 
     return (
-        <div className="max-w-4xl mx-auto p-4 md:p-8">
+        <div className="max-w-4xl mx-auto p-4 md:p-8 pb-16">
             <header className="mb-8 text-center">
                 <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-2">
                     音のデジタル化実験室 <span className="text-cyan-600 text-base align-middle ml-2 border border-cyan-200 bg-cyan-50 px-2 py-1 rounded-full">SoundBit</span>
@@ -543,7 +541,7 @@ const App = () => {
                     <div className="flex justify-between items-end mb-2">
                         <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
                              <span className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span>
-                             波形確認・符号化
+                             波形確認・調整
                         </h2>
                         <div className="flex gap-4 text-xs font-medium">
                             <div className="flex items-center gap-2 bg-white px-2 py-1 rounded border border-slate-200">
@@ -563,53 +561,78 @@ const App = () => {
                         bitDepth={bitDepth}
                         cursorIndex={cursorIndex}
                         onSetCursor={setCursorIndex}
+                        isInspectorOpen={showInspector}
                     />
 
                     {/* Controls Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                         {/* Sampling */}
-                        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+                        <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm">
                             <div className="flex justify-between items-center mb-2">
-                                <label className="text-sm font-bold text-amber-600">標本化周波数 (Sampling Rate)</label>
-                                <span className="font-mono font-bold text-slate-700">{sampleRate} Hz</span>
+                                <label className="text-base font-bold text-amber-600">標本化 (Sampling)</label>
+                                <span className="font-mono font-bold text-slate-700 text-lg">{sampleRate} Hz</span>
                             </div>
-                            <input type="range" min="1000" max="44100" step="100" value={sampleRate} onChange={(e) => setSampleRate(Number(e.target.value))} className="w-full accent-amber-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
+                            <input type="range" min="1000" max="44100" step="100" value={sampleRate} onChange={(e) => setSampleRate(Number(e.target.value))} className="w-full accent-amber-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer mb-2" />
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                横軸（時間）の分割数。数値が低いと、波形がカクカクになり、高い音が消えてこもった音になります。
+                            </p>
                         </div>
                         {/* Quantization */}
-                        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+                        <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm">
                             <div className="flex justify-between items-center mb-2">
-                                <label className="text-sm font-bold text-emerald-600">量子化ビット数 (Bit Depth)</label>
-                                <span className="font-mono font-bold text-slate-700">{bitDepth} bit</span>
+                                <label className="text-base font-bold text-emerald-600">量子化 (Quantization)</label>
+                                <span className="font-mono font-bold text-slate-700 text-lg">{bitDepth} bit</span>
                             </div>
-                            <input type="range" min="2" max="16" step="1" value={bitDepth} onChange={(e) => setBitDepth(Number(e.target.value))} className="w-full accent-emerald-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
+                            <input type="range" min="2" max="16" step="1" value={bitDepth} onChange={(e) => setBitDepth(Number(e.target.value))} className="w-full accent-emerald-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer mb-2" />
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                縦軸（振幅）の段階数。数値が低いと、波形の形が崩れ、「サー」というノイズが混じります。
+                            </p>
                         </div>
                     </div>
                 </section>
 
-                {/* Data Inspector Table */}
-                <DataInspector 
-                    processedData={processedData} 
-                    bitDepth={bitDepth} 
-                    cursorIndex={cursorIndex}
-                    targetRate={sampleRate}
-                />
-
-                {/* Playback */}
-                <section className="flex flex-col items-center justify-center py-8 mt-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                {/* Playback - Moved here */}
+                <section className="flex flex-col items-center justify-center py-6 mb-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
                     {!isPlaying ? (
-                        <button onClick={playProcessedAudio} className="group relative inline-flex items-center gap-3 px-8 py-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xl font-bold rounded-full shadow-lg shadow-cyan-200 transition-all hover:scale-105 active:scale-95">
+                        <button onClick={playProcessedAudio} className="group relative inline-flex items-center gap-3 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white text-lg font-bold rounded-full shadow-lg shadow-cyan-200 transition-all hover:scale-105 active:scale-95">
                             <Icons.Play /> 変換後の音を再生
                         </button>
                     ) : (
-                        <button onClick={stopAudio} className="inline-flex items-center gap-3 px-8 py-4 bg-slate-200 text-slate-700 text-xl font-bold rounded-full hover:bg-slate-300 transition-all">
+                        <button onClick={stopAudio} className="inline-flex items-center gap-3 px-8 py-3 bg-slate-200 text-slate-700 text-lg font-bold rounded-full hover:bg-slate-300 transition-all">
                             <Icons.Square /> 停止
                         </button>
                     )}
-                    <p className="mt-3 text-slate-500 text-sm">現在の設定 ({sampleRate}Hz / {bitDepth}bit) で再生します</p>
+                    <p className="mt-2 text-slate-500 text-xs">設定を変更したら再生して、音質の変化を確認しよう</p>
                 </section>
+
+                {/* Collapsible Data Inspector */}
+                <section className="mt-8 border-t border-slate-200 pt-6">
+                    <button 
+                        onClick={() => setShowInspector(!showInspector)}
+                        className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold text-sm mx-auto transition-colors"
+                    >
+                        {showInspector ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
+                        {showInspector ? '符号化の詳細を隠す' : '符号化の仕組みを見る（おまけ）'}
+                    </button>
+
+                    {showInspector && (
+                        <div className="animate-[fadeIn_0.3s_ease-out]">
+                             <p className="text-center text-xs text-rose-500 mt-2 mb-2">
+                                ※ グラフをクリックまたはドラッグして、検査する位置を指定してください
+                            </p>
+                            <DataInspector 
+                                processedData={processedData} 
+                                bitDepth={bitDepth} 
+                                cursorIndex={cursorIndex}
+                                targetRate={sampleRate}
+                            />
+                        </div>
+                    )}
+                </section>
+
             </div>
             
-            <footer className="mt-12 text-center text-slate-400 text-xs pb-8">
+            <footer className="mt-12 text-center text-slate-400 text-xs">
                 <p>Information I Study App</p>
             </footer>
         </div>
