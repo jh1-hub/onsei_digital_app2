@@ -1,0 +1,7 @@
+{
+  "name": "SoundBit: 音のデジタル化実験室",
+  "description": "高校情報Ⅰ向け。標本化周波数と量子化ビット数を操作し、音のデジタル化（AD変換）の仕組みを体験的に学ぶWebアプリ。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
