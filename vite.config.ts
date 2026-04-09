@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      base: '/onsei_digital_app2/',
       server: {
         port: 3000,
         host: '0.0.0.0',
